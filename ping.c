@@ -29,7 +29,7 @@ int main(int argc, char **argv){
                                   
     
     struct icmp *packet_icmp;
-    char *mesg = "Test";
+    char *mesg = "test";
     int len = 8 + strlen(mesg);		/* ICMP header and data */
     char sent_packet[len];
     //casting sent_packet pointer to type icmp, and making packet_icmp point to buffer.
@@ -43,7 +43,8 @@ int main(int argc, char **argv){
 
     // insert data
     memcpy(packet_icmp->icmp_data, mesg, strlen(mesg));
-    printf("data sent should be: %s", packet_icmp->icmp_data);
+    //memset(packet_icmp->icmp_data, 0xa4, 1);
+    printf("data should be: %s", packet_icmp->icmp_data);
     
 
 	packet_icmp->icmp_cksum = 0;
@@ -54,11 +55,13 @@ int main(int argc, char **argv){
         error("error in socket opening");
     }
   // connectionless means just sending it without promises.
-    bytesSent = sendto(sockfd, sent_packet, 1460, 0,destaddr->ai_addr, sizeof(struct sockaddr));// sent_packet is malformed. it has data, but it doesnt seem to be considered as protocol.
+    bytesSent = sendto(sockfd, sent_packet, len, 0,destaddr->ai_addr, sizeof(struct sockaddr));// sent_packet is malformed. it has data, but it doesnt seem to be considered as protocol.
     if(bytesSent<0){//or smaller from sent packet
         error("error in sending data through socketfd");
     }
-   
+    if(bytesSent!=len){
+        printf("should've sent %d bytes but insted send %d bytes ", len, bytesSent);
+    } 
 /*
 
    if(listen(sockfd,5) != 0){
