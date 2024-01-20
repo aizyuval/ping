@@ -11,38 +11,37 @@
 
 #define IP4_HDRLEN 20         // IPv4 header length
 #define ICMP_HDRLEN 8         // ICMP header length for echo request, excludes data
+#define SOCKADDR_LEN 16                              
 void error(const char *msg)
 {
       perror(msg);
       exit(0);
 }
-uint16_t checksum (uint16_t *, int);
+uint16_t checksum (uint16_t *, int);//pre
 int main(int argc, char **argv){
 
-    int sockfd, new_sockfd, bytesSent, bytesRecieved;
+    int sockfd, bytesSent, icmp_bytesRecieved;
     struct sockaddr_in their_addr; 
     
-    // set up addrinfo struct for the info
+    // set up addrinfo struct for the info, with the address given by user
     struct addrinfo pre_destaddr, *destaddr;
     memset(&pre_destaddr,0,sizeof(pre_destaddr));
-    
-    // init family for sa_family in sockddr
     pre_destaddr.ai_family = AF_INET;
-    // setting a destination address structure from user "gnu.org".
     getaddrinfo(argv[1], "0", &pre_destaddr, &destaddr);
                                   
     
-    struct icmp *packet_icmp;
+    struct icmp *packet_icmp; // actual structure of the packet
     char *mesg = "test";
     int icmp_buflen = ICMP_HDRLEN + strlen(mesg);		/* ICMP header and data */
     char sent_packet[icmp_buflen];
+
     int income_len = IP4_HDRLEN + icmp_buflen;
     char income_packet[income_len]; 
 
-    //casting sent_packet pointer to type icmp, and making packet_icmp point to buffer.
+    //packet_icmp should point to sent_packet memory space
     packet_icmp = (struct icmp *)sent_packet;
 
-    //fill the header:
+    //fill the header
     packet_icmp->icmp_type = ICMP_ECHO;
     packet_icmp->icmp_code = 0;
     packet_icmp->icmp_seq = 0;
@@ -50,58 +49,60 @@ int main(int argc, char **argv){
 
     // insert data
     memcpy(packet_icmp->icmp_data, mesg, strlen(mesg));
-
+    
+    //compute checksum
 	packet_icmp->icmp_cksum = 0;
     packet_icmp->icmp_cksum = checksum((uint16_t *) packet_icmp, icmp_buflen);
 
-    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // through this socket, send a sent_packet that includes only the icmp packet. Ip header and link layer header provided to me. 
+    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // initialize ipv4 raw socket of icmp protocol 
     if(sockfd<0){
         error("error in socket opening");
     }
-    bytesSent = sendto(sockfd, sent_packet, icmp_buflen, 0,destaddr->ai_addr, sizeof(struct sockaddr));
+    // send the packet to the address
+    bytesSent = sendto(sockfd, sent_packet, icmp_buflen, 0,destaddr->ai_addr, SOCKADDR_LEN );
+
     if(bytesSent<0){
         error("error in sending data through socketfd");
     }
     if(bytesSent!=icmp_buflen){
         printf("should've sent %d bytes but instead send %d bytes ", icmp_buflen, bytesSent);
     } 
-    printf("size of bytes sent: %d", bytesSent);
+    
 
-    socklen_t addr_size = sizeof(struct sockaddr_in);
-    bytesRecieved = recvfrom(sockfd, income_packet, income_len, 0, (struct sockaddr*)&their_addr, &addr_size);
-    struct sockaddr_in their_addr_in = (struct sockaddr_in)their_addr;
-    if(bytesRecieved < 0){
+    socklen_t addr_size = SOCKADDR_LEN;
+    // recieve the packet
+    icmp_bytesRecieved = recvfrom(sockfd, income_packet, income_len, 0, (struct sockaddr*)&their_addr, &addr_size);
+    if(icmp_bytesRecieved < 0){
     error("error on recvfrom");
     }
-    printf("size of bytes recieved: %d", bytesRecieved);
-    // bytesRecieved -> | i    p   | 20 bytes
-    //               -> | i c m p  | 12 bytes (includes my data!)
-    // validate echo reply from the destination
-    // bytes recieved should include my data, and the dest address as source
-    // decapsulate the packet.
-    
+   
+    // define structures and assign space for icmp and ip splitted data
     struct ip *recIp;// NOTE: should this be a pointer really? 
     char ipBytes[IP4_HDRLEN]; 
     recIp = (struct ip *)ipBytes;
+
     struct icmp *recIcmp;// NOTE: should this be a pointer really? 
     char icmpBytes[icmp_buflen]; 
     recIcmp = (struct icmp *)icmpBytes;
+    
+    // copy data from packet to structures
     memcpy(recIp, income_packet, IP4_HDRLEN);
     memcpy(recIcmp, (income_packet + IP4_HDRLEN), icmp_buflen);
-    // validate echo reply!
-    // validate ip address!
     // validate checksum?
+    
+    // cast destination address to validate it seperately from src address (with sockaddr_in)
     struct sockaddr_in * destaddr_in;
     destaddr_in = (struct sockaddr_in*)destaddr->ai_addr;
-    if(destaddr_in->sin_addr.s_addr != recIp->ip_src.s_addr) // do my dest addr equals recieved src addres? 
+
+    if(destaddr_in->sin_addr.s_addr != recIp->ip_src.s_addr) //compare adresses
     {
-        printf("the host didn't respond. Though someone else did");
+        printf("\nthe host didn't respond. Though someone else did");
             exit(0);
-    }else if(recIcmp->icmp_type != ICMP_ECHOREPLY){
-        printf("something is wrong with your ping. you probably used the dest as router");
+    }else if(recIcmp->icmp_type != ICMP_ECHOREPLY){// validate icmp type
+        printf("\nsomething is wrong with your ping. you probably used the dest as router");
         exit(0);
     }else{
-        printf("the host is up, and have pinged back! Congrats.");
+        printf("\nthe host is up, and have pinged back! Congrats.\n");
     }
     close(sockfd);
      return 0;
