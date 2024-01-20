@@ -1,3 +1,4 @@
+// what's stopping me from impersonating someone else with sending an ip packet including his ip instead of mine?
 #include <netinet/ip_icmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,6 +8,9 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <string.h>
+
+#define IP4_HDRLEN 20         // IPv4 header length
+#define ICMP_HDRLEN 8         // ICMP header length for echo request, excludes data
 void error(const char *msg)
 {
       perror(msg);
@@ -15,7 +19,7 @@ void error(const char *msg)
 uint16_t checksum (uint16_t *, int);
 int main(int argc, char **argv){
 
-    int sockfd, new_sockfd, bytesSent;
+    int sockfd, new_sockfd, bytesSent, bytesRecieved;
     struct sockaddr_in their_addr; 
     
     // set up addrinfo struct for the info
@@ -30,8 +34,11 @@ int main(int argc, char **argv){
     
     struct icmp *packet_icmp;
     char *mesg = "test";
-    int len = 8 + strlen(mesg);		/* ICMP header and data */
-    char sent_packet[len];
+    int icmp_buflen = ICMP_HDRLEN + strlen(mesg);		/* ICMP header and data */
+    char sent_packet[icmp_buflen];
+    int income_len = IP4_HDRLEN + icmp_buflen;
+    char income_packet[income_len]; 
+
     //casting sent_packet pointer to type icmp, and making packet_icmp point to buffer.
     packet_icmp = (struct icmp *)sent_packet;
 
@@ -43,51 +50,67 @@ int main(int argc, char **argv){
 
     // insert data
     memcpy(packet_icmp->icmp_data, mesg, strlen(mesg));
-    //memset(packet_icmp->icmp_data, 0xa4, 1);
-    printf("data should be: %s", packet_icmp->icmp_data);
-    
 
 	packet_icmp->icmp_cksum = 0;
-    packet_icmp->icmp_cksum = checksum((uint16_t *) packet_icmp, len);
+    packet_icmp->icmp_cksum = checksum((uint16_t *) packet_icmp, icmp_buflen);
 
-    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // through this socket, send a sent_packet that includes only the icmp packet. the ip header and eth provided 
+    sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP); // through this socket, send a sent_packet that includes only the icmp packet. Ip header and link layer header provided to me. 
     if(sockfd<0){
         error("error in socket opening");
     }
-  // connectionless means just sending it without promises.
-    bytesSent = sendto(sockfd, sent_packet, len, 0,destaddr->ai_addr, sizeof(struct sockaddr));// sent_packet is malformed. it has data, but it doesnt seem to be considered as protocol.
-    if(bytesSent<0){//or smaller from sent packet
+    bytesSent = sendto(sockfd, sent_packet, icmp_buflen, 0,destaddr->ai_addr, sizeof(struct sockaddr));
+    if(bytesSent<0){
         error("error in sending data through socketfd");
     }
-    if(bytesSent!=len){
-        printf("should've sent %d bytes but insted send %d bytes ", len, bytesSent);
+    if(bytesSent!=icmp_buflen){
+        printf("should've sent %d bytes but instead send %d bytes ", icmp_buflen, bytesSent);
     } 
-/*
+    printf("size of bytes sent: %d", bytesSent);
 
-   if(listen(sockfd,5) != 0){
-       error("error on listening");
-   }
-    socklen_t addr_size = sizeof(their_addr);
-    new_sockfd = accept(sockfd, (struct sockaddr*)&their_addr, &addr_size);
-    if(new_sockfd<0){
-    error("error on accepting from sockfd"
-    )
-    
-    }
-    bytesRecieved = recvfrom(new_sockfd, buf, len, 0, &their_addr, their_len);
+    socklen_t addr_size = sizeof(struct sockaddr_in);
+    bytesRecieved = recvfrom(sockfd, income_packet, income_len, 0, (struct sockaddr*)&their_addr, &addr_size);
+    struct sockaddr_in their_addr_in = (struct sockaddr_in)their_addr;
     if(bytesRecieved < 0){
     error("error on recvfrom");
     }
- */  
+    printf("size of bytes recieved: %d", bytesRecieved);
+    // bytesRecieved -> | i    p   | 20 bytes
+    //               -> | i c m p  | 12 bytes (includes my data!)
+    // validate echo reply from the destination
+    // bytes recieved should include my data, and the dest address as source
     // decapsulate the packet.
+    
+    struct ip *recIp;// NOTE: should this be a pointer really? 
+    char ipBytes[IP4_HDRLEN]; 
+    recIp = (struct ip *)ipBytes;
+    struct icmp *recIcmp;// NOTE: should this be a pointer really? 
+    char icmpBytes[icmp_buflen]; 
+    recIcmp = (struct icmp *)icmpBytes;
+    memcpy(recIp, income_packet, IP4_HDRLEN);
+    memcpy(recIcmp, (income_packet + IP4_HDRLEN), icmp_buflen);
+    // validate echo reply!
+    // validate ip address!
+    // validate checksum?
+    struct sockaddr_in * destaddr_in;
+    destaddr_in = (struct sockaddr_in*)destaddr->ai_addr;
+    if(destaddr_in->sin_addr.s_addr != recIp->ip_src.s_addr) // do my dest addr equals recieved src addres? 
+    {
+        printf("the host didn't respond. Though someone else did");
+            exit(0);
+    }else if(recIcmp->icmp_type != ICMP_ECHOREPLY){
+        printf("something is wrong with your ping. you probably used the dest as router");
+        exit(0);
+    }else{
+        printf("the host is up, and have pinged back! Congrats.");
+    }
     close(sockfd);
      return 0;
 }
 
 uint16_t
-checksum (uint16_t *addr, int len) {
+checksum (uint16_t *addr, int length) {
 
-  int count = len;
+  int count = length;
   register uint32_t sum = 0;
   uint16_t answer = 0;
 
