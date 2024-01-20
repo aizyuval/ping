@@ -1,2 +1,5 @@
 ping
 testprog.c
+*.swp
+.*.swp
+.*.*.swp
