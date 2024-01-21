@@ -1,5 +1,6 @@
 // what's stopping me from impersonating someone else with sending an ip packet including his ip instead of mine?
 #include <netinet/ip_icmp.h>
+#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -14,8 +15,8 @@
 #define SOCKADDR_LEN 16                              
 void error(const char *msg)
 {
-      perror(msg);
-      exit(0);
+    perror(msg);
+    exit(0);
 }
 uint16_t checksum (uint16_t *, int);//pre
 int main(int argc, char **argv){
@@ -30,17 +31,15 @@ int main(int argc, char **argv){
     int sockfd;
     socklen_t  addr_size = SOCKADDR_LEN; // pointer to size 
     struct sockaddr_in their_addr; 
-       
     // set up addrinfo struct for the info, with the address given by user
     struct addrinfo pre_destaddr, *destaddr;
     memset(&pre_destaddr,0,sizeof(pre_destaddr));
     pre_destaddr.ai_family = AF_INET;
     getaddrinfo(argv[1], "0", &pre_destaddr, &destaddr);
-                                  
     // cast destination address to validate it seperately from src address (with sockaddr_in)
     struct sockaddr_in * destaddr_in;
     destaddr_in = (struct sockaddr_in*)destaddr->ai_addr;
-    
+
     struct icmp *packet_icmp; // actual structure of the packet
     char *mesg = "test";
     int icmp_buflen = ICMP_HDRLEN + strlen(mesg);		/* ICMP header and data */
@@ -59,7 +58,7 @@ int main(int argc, char **argv){
 
     // insert data
     memcpy(packet_icmp->icmp_data, mesg, strlen(mesg));
-    
+
     // define structures and assign space for icmp and ip splitted data
     struct ip *recIp;
     char ipBytes[IP4_HDRLEN]; 
@@ -76,11 +75,12 @@ int main(int argc, char **argv){
         error("error in socket opening");
     }
     // send the packet to the address
-    
+
     // -> start for loop
+
     for(long i = 0; i<iterations; i++){
 
-         
+
         packet_icmp->icmp_id = (short)i; // change id over iterations
         packet_icmp->icmp_cksum = 0;
 
@@ -88,71 +88,75 @@ int main(int argc, char **argv){
         packet_icmp->icmp_cksum = checksum((uint16_t *) packet_icmp, icmp_buflen);
         int bytesSent, icmp_bytesRecieved;
         bytesSent = sendto(sockfd, sent_packet, icmp_buflen, 0,destaddr->ai_addr, SOCKADDR_LEN );
-
         if(bytesSent<0){
             error("error in sending data through socketfd");
         }
         if(bytesSent!=icmp_buflen){
             printf("should've sent %d bytes but instead send %d bytes ", icmp_buflen, bytesSent);
         } 
-        
         // recieve the packet
+
         icmp_bytesRecieved = recvfrom(sockfd, income_packet, income_len, 0, (struct sockaddr*)&their_addr, &addr_size);
         if(icmp_bytesRecieved < 0){
-        error("error on recvfrom");
+            error("error on recvfrom");
         }
-        
         // copy data from packet to structures
         struct ip *recIpP = memcpy(recIp, income_packet, IP4_HDRLEN);
         struct icmp *recIcmpP = memcpy(recIcmp, (income_packet + IP4_HDRLEN), icmp_buflen); //check that pointers work correctly
-        // validate checksum?
+                                                                                            // validate checksum?
         if(recIpP != recIp || recIcmpP != recIcmp){
             printf("structure init (with pointers) is wrong");
         } 
 
         if(destaddr_in->sin_addr.s_addr != recIp->ip_src.s_addr) //compare adresses
         {
-            printf("\nthe host didn't respond. Though someone else did");
-                exit(0);
+            char str[INET_ADDRSTRLEN]; // using strlen. 256.256.256.256 = 16len 
+            inet_ntop(AF_INET, &(recIp->ip_src), str,INET_ADDRSTRLEN);
+            printf("the host didn't respond. Got a icmp_type: %d, code: %d , from: %s\n", recIcmp->icmp_type, recIcmp->icmp_code, str);
+            exit(0);
         }else if(recIcmp->icmp_type != ICMP_ECHOREPLY){// validate icmp type
             printf("\nsomething is wrong with your ping. you probably used the dest as router");
             exit(0);
         }else{
             printf("\nhost is up. | Sequence: %d| Id: %ld\n", packet_icmp->icmp_seq,i);
         }
+        run +=1;
     }
-    close(sockfd);
-     return 0;
+
+
+}
+close(sockfd);
+return 0;
 }
 
 uint16_t
 checksum (uint16_t *addr, int length) {
 
-  int count = length;
-  register uint32_t sum = 0;
-  uint16_t answer = 0;
+    int count = length;
+    register uint32_t sum = 0;
+    uint16_t answer = 0;
 
-  // Sum up 2-byte values until none or only one byte left.
-  while (count > 1) {
-    sum += *(addr++);
-    count -= 2;
-  }
+    // Sum up 2-byte values until none or only one byte left.
+    while (count > 1) {
+        sum += *(addr++);
+        count -= 2;
+    }
 
-  // Add left-over byte, if any.
-  if (count > 0) {
-    sum += *(uint8_t *) addr;
-  }
+    // Add left-over byte, if any.
+    if (count > 0) {
+        sum += *(uint8_t *) addr;
+    }
 
-  // Fold 32-bit sum into 16 bits; we lose information by doing this,
-  // increasing the chances of a collision.
-  // sum = (lower 16 bits) + (upper 16 bits shifted right 16 bits)
-  while (sum >> 16) {
-    sum = (sum & 0xffff) + (sum >> 16);
-  }
+    // Fold 32-bit sum into 16 bits; we lose information by doing this,
+    // increasing the chances of a collision.
+    // sum = (lower 16 bits) + (upper 16 bits shifted right 16 bits)
+    while (sum >> 16) {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
 
-  // Checksum is one's compliment of sum.
-  answer = ~sum;
+    // Checksum is one's compliment of sum.
+    answer = ~sum;
 
-  return (answer);
+    return (answer);
 }
 

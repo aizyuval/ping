@@ -1,10 +1,11 @@
 #include <netinet/ip_icmp.h>
+#include <time.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 
 int main(int argc, char ** argv){
-
+    clock_t  startC = clock();
     struct icmp *hdr_icmp;
     struct icmp *test_icmp;
 
@@ -29,12 +30,23 @@ int main(int argc, char ** argv){
     memset(hdr_icmp->icmp_data, 'w',1);
     memset(hdr_icmp->icmp_data, 'i',1);
     memset(hdr_icmp->icmp_data, 'n',1);*/
-    
+    long long hello = 0; 
 	hdr_icmp->icmp_cksum = 3;
     memcpy(test_icmp, hdr_icmp,1);
     printf("if memcpy worked as planned, test_icmp should be 8 (%d), and icmp_code NOT 2 (%d)", test_icmp->icmp_type, test_icmp->icmp_code);
     printf(" %p", hdr_icmp);
     printf(":\n %d", sent_packet[0]);
     printf("args: %s : %s :%s", argv[0],argv[1], argv[2]);
+    clock_t timeLimit = 1;
+    while((((clock())-startC)/CLOCKS_PER_SEC)<timeLimit){
+    for(long long i =0;i<1000000000; i++){
+    hello += 1;
+    }
+    }
+
+    if((((clock())-startC)/CLOCKS_PER_SEC)>timeLimit){
+        printf("\nbig abortm hello %lld\n", hello);
+    }
+    printf("this is the time it took: %ld", ((((clock()) -startC)/CLOCKS_PER_SEC)));
     return 0;
 }
